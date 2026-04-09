@@ -1,0 +1,1297 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <!-- Мета-теги для мобильных устройств (запрет масштабирования, полноэкранный режим) -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>Birthday Quest</title>
+    
+    <!-- Мета-теги для красивой ссылки в Telegram и соцсетях (Open Graph) -->
+    <meta property="og:title" content="С Днём Рождения! 🎉">
+    <meta property="og:description" content="Интерактивный 3D-квест сюрприз специально для тебя! Заходи и собери все сердечки ❤️">
+    <meta property="og:image" content="preview.jpg"> <!-- Название картинки, которая будет превью -->
+    <meta property="og:type" content="website">
+
+    <!-- Подключение Three.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- Подключение GLTFLoader для загрузки внешних 3D моделей -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    
+    <style>
+        :root {
+            --primary: #ffb6c1;
+            --secondary: #add8e6;
+            --text: #ff6b81;
+            --bg-overlay: rgba(255, 255, 255, 0.85);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; -webkit-user-select: none; }
+        
+        body {
+            overflow: hidden;
+            background-color: #fce4ec;
+            font-family: 'Comic Sans MS', 'Nunito', sans-serif;
+            touch-action: none; /* Запрет pull-to-refresh на мобильных */
+        }
+
+        #webgl-container {
+            position: absolute;
+            top: 0; left: 0; width: 100vw; height: 100vh;
+        }
+
+        /* UI Хаба */
+        #ui-layer {
+            position: absolute;
+            top: 20px; left: 50%;
+            transform: translateX(-50%);
+            background: rgba(255, 255, 255, 0.8);
+            padding: 10px 20px;
+            border-radius: 20px;
+            color: var(--text);
+            font-weight: bold;
+            font-size: 1.2rem;
+            box-shadow: 0 4px 15px rgba(255, 107, 129, 0.2);
+            z-index: 10;
+            text-align: center;
+        }
+
+        /* Окно загрузки локального файла */
+        #local-load-ui {
+            position: absolute;
+            top: 80px; left: 50%;
+            transform: translateX(-50%);
+            background: rgba(255, 255, 255, 0.95);
+            padding: 15px;
+            border-radius: 15px;
+            text-align: center;
+            z-index: 250; /* Поверх интро */
+            display: none; /* Скрыто по умолчанию */
+            border: 2px dashed var(--text);
+            color: #555;
+            font-size: 0.9rem;
+            box-shadow: 0 4px 15px rgba(255, 107, 129, 0.2);
+            width: 80%;
+            max-width: 300px;
+        }
+
+        /* Джойстик */
+        #joystick-zone {
+            position: absolute;
+            bottom: 40px; left: 50%;
+            transform: translateX(-50%);
+            width: 120px; height: 120px;
+            background: rgba(255, 255, 255, 0.4);
+            border: 2px solid rgba(255, 182, 193, 0.6);
+            border-radius: 50%;
+            z-index: 10;
+            touch-action: none;
+        }
+        
+        #joystick-knob {
+            position: absolute;
+            top: 50%; left: 50%;
+            width: 50px; height: 50px;
+            background: var(--primary);
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+            pointer-events: none;
+        }
+
+        /* Стартовый экран */
+        #intro-screen {
+            position: absolute;
+            top: 0; left: 0; width: 100vw; height: 100vh;
+            background: rgba(255,255,255,0.85);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            z-index: 200;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.5s ease;
+        }
+        #intro-screen.active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+        .intro-content {
+            background: #fff;
+            padding: 30px;
+            border-radius: 20px;
+            border: 2px dashed var(--primary);
+            text-align: center;
+            max-width: 85%;
+            color: #555;
+            font-size: 1.2rem;
+            line-height: 1.5;
+            box-shadow: 0 10px 30px rgba(255, 182, 193, 0.4);
+        }
+
+        /* Оверлей Мини-игр */
+        #overlay {
+            position: absolute;
+            top: 0; left: 0; width: 100vw; height: 100vh;
+            background: var(--bg-overlay);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            z-index: 20;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+        }
+        
+        #overlay.active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .game-title {
+            font-size: 2rem;
+            color: var(--text);
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 0px #fff;
+            text-align: center;
+        }
+        
+        .game-desc {
+            font-size: 1rem;
+            color: #666;
+            margin-bottom: 20px;
+            text-align: center;
+            max-width: 80%;
+        }
+
+        #game-container {
+            width: 90vw; max-width: 400px;
+            height: 60vh; max-height: 500px;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(255, 182, 193, 0.4);
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* Кнопки */
+        .btn {
+            margin-top: 20px;
+            padding: 12px 30px;
+            background: linear-gradient(45deg, var(--primary), #ff9eb5);
+            border: none;
+            border-radius: 25px;
+            color: white;
+            font-size: 1.2rem;
+            font-weight: bold;
+            box-shadow: 0 4px 15px rgba(255, 182, 193, 0.5);
+            cursor: pointer;
+        }
+        .btn:active { transform: scale(0.95); }
+
+        /* --- Стили для конкретных игр --- */
+        /* Memory Match */
+        .memory-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+            padding: 10px;
+            width: 100%; height: 100%;
+        }
+        .memory-card {
+            background: var(--secondary);
+            border-radius: 10px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 2rem;
+            cursor: pointer;
+            transition: transform 0.3s;
+            transform-style: preserve-3d;
+        }
+        .memory-card.flipped {
+            background: white;
+            border: 2px solid var(--primary);
+            transform: rotateY(180deg);
+        }
+        .memory-card img {
+            display: none;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            border-radius: 8px;
+            transform: rotateY(180deg);
+            pointer-events: none;
+        }
+        .memory-card.flipped img { display: block; }
+
+        /* Clicker */
+        .clicker-btn {
+            width: 150px; height: 150px;
+            background: radial-gradient(circle, #ff6b81, var(--primary));
+            border-radius: 50%;
+            display: flex; justify-content: center; align-items: center;
+            font-size: 4rem;
+            color: white;
+            box-shadow: 0 10px 30px rgba(255, 107, 129, 0.5);
+            transition: transform 0.05s;
+        }
+        .clicker-btn:active { transform: scale(0.9); }
+        .clicker-stats { position: absolute; top: 20px; font-size: 1.5rem; color: var(--text); font-weight: bold; }
+
+        /* Canvas Games */
+        canvas { display: block; width: 100%; height: 100%; }
+
+        /* Финальное окно */
+        #final-screen {
+            position: absolute;
+            top: 0; left: 0; width: 100vw; height: 100vh;
+            background: rgba(255,255,255,0.9);
+            z-index: 100;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 1s ease;
+        }
+        #final-screen.active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+        .final-title {
+            font-size: 3rem;
+            color: var(--text);
+            text-align: center;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            text-shadow: 0 4px 10px rgba(255, 107, 129, 0.3);
+            animation: bounce 2s infinite;
+        }
+        @keyframes bounce {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-20px); }
+        }
+        .final-letter {
+            margin-top: 20px;
+            padding: 20px;
+            background: #fff;
+            border: 2px dashed var(--primary);
+            border-radius: 15px;
+            max-width: 90%;
+            max-height: 70vh;
+            overflow-y: auto;
+            text-align: left;
+            color: #444;
+            display: none;
+            font-size: 1.1rem;
+            line-height: 1.5;
+            box-shadow: 0 10px 30px rgba(255, 182, 193, 0.4);
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Стартовый экран с сообщением -->
+    <div id="intro-screen" class="active">
+        <div class="intro-content">
+            Зайка, я сделал для тебя небольшую квест-игру. Тебе нужно собрать все сердечки. Очень надеюсь что тебе понравится) ❤️<br>
+            <button class="btn" id="start-quest-btn" style="margin-top: 20px; width: 100%;">Начать игру ✨</button>
+        </div>
+    </div>
+
+    <!-- 3D Хаб -->
+    <div id="webgl-container"></div>
+    
+    <!-- UI Поверх 3D -->
+    <div id="ui-layer">Собрано сердец: <span id="score">0</span>/5</div>
+
+    <!-- Запасной интерфейс загрузки для локального тестирования -->
+    <div id="local-load-ui">
+        Браузер блокирует авто-загрузку 🛡️<br>
+        <button id="manual-load-btn" class="btn" style="margin-top:10px; font-size:1rem; padding: 8px 15px; width: 100%;">Загрузить girl.glb вручную</button>
+        <input type="file" id="file-input" accept=".glb,.gltf" style="display: none;">
+    </div>
+    
+    <div id="joystick-zone">
+        <div id="joystick-knob"></div>
+    </div>
+
+    <!-- Оверлей для мини-игр -->
+    <div id="overlay">
+        <h2 class="game-title" id="game-title">Название игры</h2>
+        <p class="game-desc" id="game-desc">Описание</p>
+        <div id="game-container"></div>
+        <button class="btn" id="start-game-btn">Начать!</button>
+        <button class="btn" id="close-game-btn" style="display:none; background: #ccc;">Сдаться</button>
+    </div>
+
+    <!-- Финальный экран -->
+    <div id="final-screen">
+        <h1 class="final-title">С Днем<br>Рождения! 🎉</h1>
+        <button class="btn" id="read-letter-btn">Открыть письмо 💌</button>
+        <div class="final-letter" id="final-letter">
+            С днём рождения, моё любимое солнышко! 🥺❤️<br><br>
+            Ты самая лучшая и красивая девочка в мире. Мне так комфортно с тобой, спасибо за то, что ты есть у меня и всегда поддерживаешь. С твоим появлением моя жизнь стала очень яркой, и без тебя я уже не смогу. Даже когда мы не видимся, все мои мысли утром, днём и перед сном — только о тебе, твоих глазках и нежной улыбке.<br><br>
+            Желаю тебе успешной сдачи экзаменов, чтобы все цели сбывались! Пусть будет больше ярких событий и верных подруг. Не болей и не грусти. Пусть твои глаза всегда светятся от счастья, а всё плохое обходит стороной.<br><br>
+            Я безумно тобой дорожу, боюсь потерять и хочу, чтобы осталась со мной навсегда. Не злись на меня, если иногда я делаю что-то не так — это никогда не со зла, я просто очень хочу, чтобы у нас с тобой всё получилось.<br><br>
+            Ещё раз с праздником, безумно тебя люблю! ❤️
+        </div>
+    </div>
+
+    <script>
+        // --- ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ---
+        let progress = 0;
+        const totalGames = 5;
+        let isMiniGameActive = false;
+        let isIntroActive = true; // Блокируем игру до закрытия интро
+        let activeHeartIndex = -1;
+        
+        const heartsStatus = [false, false, false, false, false]; // Пройдены ли игры
+        const heartObjects = []; // Ссылки на 3D меши
+
+        // Обработка кнопки старта
+        document.getElementById('start-quest-btn').onclick = () => {
+            document.getElementById('intro-screen').classList.remove('active');
+            isIntroActive = false;
+        };
+
+        // --- НАСТРОЙКА THREE.JS ---
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0xfce4ec);
+        scene.fog = new THREE.Fog(0xfce4ec, 10, 50);
+
+        const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100);
+        camera.position.set(0, 10, 15);
+        camera.lookAt(0, 0, 0);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        
+        // ВАЖНОЕ ИСПРАВЛЕНИЕ ДЛЯ ЦВЕТОВ: Включаем sRGB для корректного отображения текстур из GLB
+        renderer.outputEncoding = THREE.sRGBEncoding;
+        
+        document.getElementById('webgl-container').appendChild(renderer.domElement);
+
+        // Освещение (Kawaii стиль)
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        scene.add(ambientLight);
+
+        const dirLight = new THREE.DirectionalLight(0xffb6c1, 0.8);
+        dirLight.position.set(10, 20, 10);
+        dirLight.castShadow = true;
+        dirLight.shadow.camera.top = 15;
+        dirLight.shadow.camera.bottom = -15;
+        dirLight.shadow.camera.left = -15;
+        dirLight.shadow.camera.right = 15;
+        scene.add(dirLight);
+
+        // Платформа (Остров)
+        const platformGeo = new THREE.CylinderGeometry(12, 14, 2, 32);
+        const platformMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.8 });
+        const platform = new THREE.Mesh(platformGeo, platformMat);
+        platform.position.y = -1;
+        platform.receiveShadow = true;
+        scene.add(platform);
+
+        // Декорации (Деревья/облака) - простейшие шары
+        for(let i=0; i<8; i++) {
+            const bushGeo = new THREE.SphereGeometry(Math.random() * 1 + 0.5, 16, 16);
+            const bushMat = new THREE.MeshStandardMaterial({ color: 0xadd8e6, roughness: 0.9 });
+            const bush = new THREE.Mesh(bushGeo, bushMat);
+            const angle = (i / 8) * Math.PI * 2;
+            bush.position.set(Math.cos(angle) * 10, 0, Math.sin(angle) * 10);
+            bush.castShadow = true;
+            scene.add(bush);
+        }
+
+        // Игрок: Загрузка настоящей 3D-модели (GLTF/GLB)
+        const player = new THREE.Group();
+        scene.add(player);
+
+        // --- ПРОЦЕДУРНАЯ ДЕВУШКА (Резервная заглушка) ---
+        const proceduralGirl = new THREE.Group();
+        
+        const skinMat = new THREE.MeshStandardMaterial({ color: 0xffe0bd, roughness: 0.4 });
+        const hairMat = new THREE.MeshStandardMaterial({ color: 0x991111, roughness: 0.8 }); // Рыжие
+        const dressMat = new THREE.MeshStandardMaterial({ color: 0x5c131c, roughness: 0.9 }); // Бордовое платье
+        const laceMat = new THREE.MeshStandardMaterial({ color: 0x4a0f16, roughness: 0.9 }); // Темные колготки
+
+        const headGeo = new THREE.SphereGeometry(0.25, 16, 16);
+        const head = new THREE.Mesh(headGeo, skinMat);
+        head.position.y = 1.4;
+        head.castShadow = true;
+        proceduralGirl.add(head);
+
+        const hairGeo = new THREE.SphereGeometry(0.26, 16, 16, 0, Math.PI * 2, 0, Math.PI / 1.5);
+        const hair = new THREE.Mesh(hairGeo, hairMat);
+        hair.position.y = 1.42;
+        hair.castShadow = true;
+        proceduralGirl.add(hair);
+
+        const longHairGeo = new THREE.CylinderGeometry(0.24, 0.26, 0.5, 16);
+        const longHair = new THREE.Mesh(longHairGeo, hairMat);
+        longHair.position.set(0, 1.1, -0.1);
+        longHair.castShadow = true;
+        proceduralGirl.add(longHair);
+
+        const bodyGeo = new THREE.CylinderGeometry(0.18, 0.45, 0.8, 16);
+        const body = new THREE.Mesh(bodyGeo, dressMat);
+        body.position.y = 0.85;
+        body.castShadow = true;
+        proceduralGirl.add(body);
+
+        const legGeo = new THREE.CylinderGeometry(0.08, 0.06, 0.5);
+        const leftLeg = new THREE.Mesh(legGeo, laceMat);
+        leftLeg.position.y = -0.25; 
+        leftLeg.castShadow = true;
+        const leftLegPivot = new THREE.Group();
+        leftLegPivot.position.set(-0.15, 0.5, 0);
+        leftLegPivot.add(leftLeg);
+        proceduralGirl.add(leftLegPivot);
+
+        const rightLeg = new THREE.Mesh(legGeo, laceMat);
+        rightLeg.position.y = -0.25;
+        rightLeg.castShadow = true;
+        const rightLegPivot = new THREE.Group();
+        rightLegPivot.position.set(0.15, 0.5, 0);
+        rightLegPivot.add(rightLeg);
+        proceduralGirl.add(rightLegPivot);
+
+        const armGeo = new THREE.CylinderGeometry(0.05, 0.04, 0.4);
+        const leftArm = new THREE.Mesh(armGeo, skinMat);
+        leftArm.position.y = -0.2;
+        leftArm.castShadow = true;
+        const leftArmPivot = new THREE.Group();
+        leftArmPivot.position.set(-0.25, 1.15, 0);
+        leftArmPivot.add(leftArm);
+        proceduralGirl.add(leftArmPivot);
+
+        const rightArm = new THREE.Mesh(armGeo, skinMat);
+        rightArm.position.y = -0.2;
+        rightArm.castShadow = true;
+        const rightArmPivot = new THREE.Group();
+        rightArmPivot.position.set(0.25, 1.15, 0);
+        rightArmPivot.add(rightArm);
+        proceduralGirl.add(rightArmPivot);
+
+        player.add(proceduralGirl);
+
+        // Переменные для GLTF анимации
+        let mixer;
+        let idleAction;
+        let runAction;
+        let currentAction;
+        let isGltfLoaded = false;
+
+        const gltfLoader = new THREE.GLTFLoader();
+        const localLoadUI = document.getElementById('local-load-ui');
+        const manualLoadBtn = document.getElementById('manual-load-btn');
+        const fileInput = document.getElementById('file-input');
+
+        // Универсальная функция загрузки модели (по ссылке или локальному файлу)
+        function loadModelFromUrl(url) {
+            gltfLoader.load(url, (gltf) => {
+                // Удаляем временную процедурную модель и скрываем UI загрузки
+                player.remove(proceduralGirl);
+                isGltfLoaded = true;
+                localLoadUI.style.display = 'none';
+
+                // Если модель загружается повторно - удаляем старую
+                if (player.userData.currentModel) {
+                    player.remove(player.userData.currentModel);
+                }
+
+                const model = gltf.scene;
+                player.userData.currentModel = model;
+                
+                // ВАЖНОЕ ИСПРАВЛЕНИЕ ДЛЯ РАЗМЕРА: Делаем загруженную модель в 2.5 раза больше!
+                model.scale.set(2.5, 2.5, 2.5); 
+                
+                // --- ИСПРАВЛЕНИЕ ПОЛОЖЕНИЯ ---
+                // Если модель из Blender легла лицом в пол, эта команда поставит её на ноги:
+                model.rotation.x = Math.PI / 2; 
+
+                model.traverse((child) => {
+                    if (child.isMesh) {
+                        child.castShadow = true;
+                        child.receiveShadow = true;
+                    }
+                });
+
+                player.add(model);
+
+                // Настройка анимаций
+                if (gltf.animations && gltf.animations.length > 0) {
+                    mixer = new THREE.AnimationMixer(model);
+                    idleAction = mixer.clipAction(gltf.animations[0]);
+                    if (gltf.animations.length > 1) {
+                        runAction = mixer.clipAction(gltf.animations[1]);
+                    } else {
+                        runAction = mixer.clipAction(gltf.animations[0]);
+                    }
+                    currentAction = idleAction;
+                    currentAction.play();
+                } else {
+                    // ЕСЛИ АНИМАЦИЙ НЕТ, ПОКАЗЫВАЕМ ПРЕДУПРЕЖДЕНИЕ
+                    const warning = document.createElement('div');
+                    warning.style.position = 'absolute';
+                    warning.style.top = '10px'; warning.style.left = '50%';
+                    warning.style.transform = 'translateX(-50%)';
+                    warning.style.color = 'white'; warning.style.background = '#ff4757';
+                    warning.style.padding = '10px 20px'; warning.style.borderRadius = '10px';
+                    warning.style.zIndex = '1000'; warning.style.textAlign = 'center';
+                    warning.innerText = 'В файле girl.glb нет анимаций! Девушка будет "летать" в T-позе. Переделайте экспорт в Blender.';
+                    document.body.appendChild(warning);
+                    setTimeout(() => warning.remove(), 12000); // убрать через 12 сек
+                }
+            }, undefined, (error) => {
+                console.warn('Авто-загрузка прервана политикой безопасности.', error);
+                localLoadUI.style.display = 'block'; // Показываем кнопку загрузки вручную
+            });
+        }
+
+        // 1. Попытка загрузить модель обычным способом (Сработает на хостинге/сервере)
+        try {
+            loadModelFromUrl('girl.glb');
+        } catch (error) {
+            console.warn('Среда запрещает загрузку файлов.');
+            localLoadUI.style.display = 'block'; // Показываем кнопку загрузки вручную
+        }
+
+        // 2. Логика ручной загрузки файла с ПК пользователя
+        manualLoadBtn.onclick = () => fileInput.click();
+        fileInput.onchange = (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                // Превращаем локальный файл во временную ссылку внутри браузера
+                const url = URL.createObjectURL(file);
+                loadModelFromUrl(url);
+            }
+        };
+
+        // Функция создания 3D-сердца
+        function createHeartMesh(colorHex) {
+            const x = 0, y = 0;
+            const heartShape = new THREE.Shape();
+            heartShape.moveTo( x + 5, y + 5 );
+            heartShape.bezierCurveTo( x + 5, y + 5, x + 4, y, x, y );
+            heartShape.bezierCurveTo( x - 6, y, x - 6, y + 7,x - 6, y + 7 );
+            heartShape.bezierCurveTo( x - 6, y + 11, x - 3, y + 15.4, x + 5, y + 19 );
+            heartShape.bezierCurveTo( x + 12, y + 15.4, x + 16, y + 11, x + 16, y + 7 );
+            heartShape.bezierCurveTo( x + 16, y + 7, x + 16, y, x + 10, y );
+            heartShape.bezierCurveTo( x + 7, y, x + 5, y + 5, x + 5, y + 5 );
+
+            const extrudeSettings = { depth: 2, bevelEnabled: true, bevelSegments: 2, steps: 1, bevelSize: 1, bevelThickness: 1 };
+            const geometry = new THREE.ExtrudeGeometry( heartShape, extrudeSettings );
+            // Центрирование геометрии
+            geometry.computeBoundingBox();
+            const centerOffset = -0.5 * ( geometry.boundingBox.max.x - geometry.boundingBox.min.x );
+            const yOffset = -0.5 * ( geometry.boundingBox.max.y - geometry.boundingBox.min.y );
+            geometry.translate( centerOffset, yOffset, -1 );
+            
+            // Масштабирование
+            geometry.scale(0.05, 0.05, 0.05);
+            // Поворот, чтобы оно стояло
+            geometry.rotateZ(Math.PI);
+
+            const material = new THREE.MeshStandardMaterial( { color: colorHex, roughness: 0.3, metalness: 0.1 } );
+            const mesh = new THREE.Mesh( geometry, material );
+            mesh.castShadow = true;
+            return mesh;
+        }
+
+        // Спавн 5 сердец
+        const radius = 6;
+        for (let i = 0; i < 5; i++) {
+            const heart = createHeartMesh(0xff6b81);
+            const angle = (i / 5) * Math.PI * 2;
+            heart.position.set(Math.cos(angle) * radius, 1.5, Math.sin(angle) * radius);
+            heart.userData = { id: i, startY: 1.5, angleOffset: Math.random() * Math.PI * 2 };
+            scene.add(heart);
+            heartObjects.push(heart);
+        }
+
+        // Фейерверки
+        let particles = null;
+        function createFireworks() {
+            const particleCount = 1000;
+            const geometry = new THREE.BufferGeometry();
+            const positions = new Float32Array(particleCount * 3);
+            const velocities = [];
+            const colors = new Float32Array(particleCount * 3);
+            const colorObj = new THREE.Color();
+
+            for (let i = 0; i < particleCount; i++) {
+                positions[i * 3] = 0;
+                positions[i * 3 + 1] = 5;
+                positions[i * 3 + 2] = 0;
+
+                velocities.push({
+                    x: (Math.random() - 0.5) * 10,
+                    y: (Math.random() - 0.5) * 10 + 5,
+                    z: (Math.random() - 0.5) * 10
+                });
+
+                colorObj.setHSL(Math.random(), 1.0, 0.6);
+                colors[i * 3] = colorObj.r;
+                colors[i * 3 + 1] = colorObj.g;
+                colors[i * 3 + 2] = colorObj.b;
+            }
+
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+            const material = new THREE.PointsMaterial({ size: 0.2, vertexColors: true, transparent: true, opacity: 1 });
+            particles = new THREE.Points(geometry, material);
+            particles.userData = { velocities: velocities };
+            scene.add(particles);
+        }
+
+        // --- УПРАВЛЕНИЕ (Виртуальный джойстик) ---
+        const joystickZone = document.getElementById('joystick-zone');
+        const joystickKnob = document.getElementById('joystick-knob');
+        let joyVector = { x: 0, y: 0 };
+        const maxJoyRadius = 35;
+
+        joystickZone.addEventListener('touchstart', handleJoyStart, {passive: false});
+        joystickZone.addEventListener('touchmove', handleJoyMove, {passive: false});
+        joystickZone.addEventListener('touchend', handleJoyEnd);
+
+        let joyCenter = { x: 0, y: 0 };
+
+        function handleJoyStart(e) {
+            e.preventDefault();
+            const rect = joystickZone.getBoundingClientRect();
+            joyCenter = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+            handleJoyMove(e);
+        }
+
+        function handleJoyMove(e) {
+            e.preventDefault();
+            if (isIntroActive || isMiniGameActive) return; // Блокировка движения
+
+            const touch = e.touches[0];
+            let dx = touch.clientX - joyCenter.x;
+            let dy = touch.clientY - joyCenter.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            
+            if (distance > maxJoyRadius) {
+                dx = (dx / distance) * maxJoyRadius;
+                dy = (dy / distance) * maxJoyRadius;
+            }
+
+            joystickKnob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+            
+            // Нормализация вектора от -1 до 1
+            joyVector.x = dx / maxJoyRadius;
+            joyVector.y = dy / maxJoyRadius;
+        }
+
+        function handleJoyEnd() {
+            joystickKnob.style.transform = `translate(-50%, -50%)`;
+            joyVector = { x: 0, y: 0 };
+        }
+
+        // --- ИГРОВОЙ ЦИКЛ THREE.JS ---
+        const clock = new THREE.Clock();
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const delta = clock.getDelta();
+            const time = clock.getElapsedTime();
+
+            if (!isMiniGameActive) {
+                // Движение игрока (если интро закрыто)
+                if (!isIntroActive) {
+                    const speed = 5 * delta;
+                    player.position.x += joyVector.x * speed;
+                    player.position.z += joyVector.y * speed;
+
+                    // Ограничение платформой
+                    const distFromCenter = Math.sqrt(player.position.x ** 2 + player.position.z ** 2);
+                    if (distFromCenter > 11.5) {
+                        const angle = Math.atan2(player.position.z, player.position.x);
+                        player.position.x = Math.cos(angle) * 11.5;
+                        player.position.z = Math.sin(angle) * 11.5;
+                    }
+                }
+
+                // Управление поворотом и анимацией
+                if ((joyVector.x !== 0 || joyVector.y !== 0) && !isIntroActive) {
+                    const targetAngle = Math.atan2(joyVector.x, joyVector.y);
+                    player.rotation.y = targetAngle;
+                    
+                    if (isGltfLoaded) {
+                        // Включаем анимацию бега внешней 3D-модели
+                        if (mixer && runAction && currentAction !== runAction) {
+                            currentAction.fadeOut(0.2);
+                            runAction.reset().fadeIn(0.2).play();
+                            currentAction = runAction;
+                        }
+                    } else {
+                        // Анимация бега процедурной модели-заглушки
+                        const walkSpeed = 15;
+                        const walkAngle = Math.sin(time * walkSpeed) * 0.6;
+                        leftLegPivot.rotation.x = walkAngle;
+                        rightLegPivot.rotation.x = -walkAngle;
+                        leftArmPivot.rotation.x = -walkAngle; 
+                        rightArmPivot.rotation.x = walkAngle;
+                    }
+                } else {
+                    if (isGltfLoaded) {
+                        // Включаем анимацию покоя (Idle) внешней 3D-модели
+                        if (mixer && idleAction && currentAction !== idleAction) {
+                            currentAction.fadeOut(0.2);
+                            idleAction.reset().fadeIn(0.2).play();
+                            currentAction = idleAction;
+                        }
+                    } else {
+                        // Возврат в исходное положение процедурной модели
+                        leftLegPivot.rotation.x = 0;
+                        rightLegPivot.rotation.x = 0;
+                        leftArmPivot.rotation.x = 0;
+                        rightArmPivot.rotation.x = 0;
+                    }
+                }
+
+                // Обновляем кадр анимации 3D модели
+                if (mixer) mixer.update(delta); 
+
+                // Камера следует за игроком
+                camera.position.x = player.position.x;
+                camera.position.z = player.position.z + 12;
+                camera.position.y = 10;
+                camera.lookAt(player.position.x, player.position.y, player.position.z);
+
+                // Анимация сердец и проверка столкновений
+                heartObjects.forEach((heart, index) => {
+                    // Анимация полета (работает даже во время интро)
+                    heart.position.y = heart.userData.startY + Math.sin(time * 2 + heart.userData.angleOffset) * 0.3;
+                    heart.rotation.y += delta;
+
+                    // Если игра не пройдена и интро закрыто, проверяем столкновение
+                    if (!heartsStatus[index] && !isIntroActive) {
+                        const dist = player.position.distanceTo(heart.position);
+                        if (dist < 1.5) {
+                            triggerMiniGame(index);
+                        }
+                    }
+                });
+            }
+
+            // Анимация фейерверков
+            if (particles) {
+                const positions = particles.geometry.attributes.position.array;
+                const vels = particles.userData.velocities;
+                for(let i=0; i<vels.length; i++) {
+                    positions[i*3] += vels[i].x * delta;
+                    positions[i*3+1] += vels[i].y * delta;
+                    positions[i*3+2] += vels[i].z * delta;
+                    vels[i].y -= 9.8 * delta; // гравитация
+                }
+                particles.geometry.attributes.position.needsUpdate = true;
+                particles.material.opacity -= delta * 0.2;
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        animate();
+
+        // --- МИНИ-ИГРЫ ЛОГИКА ---
+        const overlay = document.getElementById('overlay');
+        const gameContainer = document.getElementById('game-container');
+        const gameTitle = document.getElementById('game-title');
+        const gameDesc = document.getElementById('game-desc');
+        const startBtn = document.getElementById('start-game-btn');
+        const closeBtn = document.getElementById('close-game-btn');
+        
+        let currentMiniGameLoop = null; // Для requestAnimationFrame игр
+        let miniGameTimer = null;
+
+        // ИЗМЕНЕНИЯ: Названия и описания игр обновлены
+        const gamesConfig = [
+            { title: "Летящее Сердце", desc: "Тапай, чтобы лететь и уворачиваться от колонн! Пролети 5 препятствий." },
+            { title: "Лови мои сердечки тебе❤", desc: "Двигай корзинку пальцем. Поймай 10 сердечек!" },
+            { title: "Найди Пару", desc: "Классическая игра на память. Найди все пары одинаковых фотографий." },
+            { title: "Пульс Любви", desc: "Быстро нажимай на сердце! Нужно 30 кликов за 10 секунд." },
+            { title: "Лабиринт", desc: "Забери вкусные тоффики. Нажимай на соседние пустые клетки." }
+        ];
+
+        function triggerMiniGame(index) {
+            isMiniGameActive = true;
+            activeHeartIndex = index;
+            
+            // Отпускаем джойстик программно
+            joyVector = {x: 0, y: 0};
+            joystickKnob.style.transform = `translate(-50%, -50%)`;
+
+            gameTitle.innerText = gamesConfig[index].title;
+            gameDesc.innerText = gamesConfig[index].desc;
+            gameContainer.innerHTML = ''; // Очистка
+            
+            startBtn.style.display = 'block';
+            closeBtn.style.display = 'block';
+            startBtn.onclick = () => startMiniGame(index);
+            closeBtn.onclick = quitMiniGame;
+
+            overlay.classList.add('active');
+        }
+
+        function quitMiniGame() {
+            clearMiniGameRefs();
+            overlay.classList.remove('active');
+            // Отбросить игрока немного назад
+            player.position.z += 2; 
+            setTimeout(() => { isMiniGameActive = false; }, 500);
+        }
+
+        // ИЗМЕНЕНИЯ: Функция теперь принимает индивидуальный текст победы
+        function winMiniGame(message = "🎉 Выполнено! 🎉") {
+            clearMiniGameRefs();
+            gameContainer.innerHTML = `<div style="font-size:2rem; text-align:center; padding: 20px; color: var(--text); line-height: 1.4;">🎉<br>${message}</div>`;
+            startBtn.style.display = 'none';
+            closeBtn.style.display = 'none';
+            
+            setTimeout(() => {
+                overlay.classList.remove('active');
+                
+                // Красим сердце в золото
+                const heart = heartObjects[activeHeartIndex];
+                heart.material.color.setHex(0xffd700);
+                heart.material.emissive.setHex(0x555500);
+                heartsStatus[activeHeartIndex] = true;
+                
+                progress++;
+                document.getElementById('score').innerText = progress;
+
+                if (progress >= totalGames) {
+                    setTimeout(showFinalCelebration, 1000);
+                }
+
+                setTimeout(() => { isMiniGameActive = false; }, 500);
+            }, 2500); // Немного увеличил время, чтобы девушка успела прочитать текст
+        }
+
+        function clearMiniGameRefs() {
+            if (currentMiniGameLoop) cancelAnimationFrame(currentMiniGameLoop);
+            if (miniGameTimer) clearInterval(miniGameTimer);
+            gameContainer.innerHTML = '';
+        }
+
+        function startMiniGame(index) {
+            startBtn.style.display = 'none';
+            closeBtn.style.display = 'none';
+            gameContainer.innerHTML = '';
+            
+            switch(index) {
+                case 0: runFlappyHeart(); break;
+                case 1: runCatchLove(); break;
+                case 2: runMemoryMatch(); break;
+                case 3: runClicker(); break;
+                case 4: runMaze(); break;
+            }
+        }
+
+        // --- ИГРА 1: ЛЕТЯЩЕЕ СЕРДЦЕ (Canvas) ---
+        function runFlappyHeart() {
+            const canvas = document.createElement('canvas');
+            gameContainer.appendChild(canvas);
+            const ctx = canvas.getContext('2d');
+            canvas.width = gameContainer.clientWidth;
+            canvas.height = gameContainer.clientHeight;
+
+            let bird = { y: canvas.height/2, v: 0, radius: 15 };
+            let pipes = [];
+            let frame = 0;
+            let score = 0;
+            let isGameOver = false;
+
+            const gravity = 0.5;
+            const jump = -8;
+
+            canvas.addEventListener('touchstart', (e) => { e.preventDefault(); if(!isGameOver) bird.v = jump; });
+            canvas.addEventListener('mousedown', () => { if(!isGameOver) bird.v = jump; });
+
+            function loop() {
+                if(isGameOver) return;
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                
+                // Физика птички
+                bird.v += gravity;
+                bird.y += bird.v;
+                
+                // ИЗМЕНЕНИЯ: Рисуем эмодзи сердечка вместо скучного круга
+                ctx.font = '30px Arial';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('💖', 50, bird.y);
+
+                // Трубы
+                if (frame % 90 === 0) {
+                    let gap = 120;
+                    let topH = Math.random() * (canvas.height - gap - 40) + 20;
+                    pipes.push({ x: canvas.width, topH: topH, gap: gap, passed: false });
+                }
+
+                for (let i = pipes.length - 1; i >= 0; i--) {
+                    let p = pipes[i];
+                    p.x -= 3;
+                    
+                    ctx.fillStyle = '#add8e6';
+                    ctx.fillRect(p.x, 0, 40, p.topH); // Верх
+                    ctx.fillRect(p.x, p.topH + p.gap, 40, canvas.height); // Низ
+
+                    // Коллизия (радиус птички примерно 15px)
+                    if (50 + bird.radius > p.x && 50 - bird.radius < p.x + 40) {
+                        if (bird.y - bird.radius < p.topH || bird.y + bird.radius > p.topH + p.gap) {
+                            gameOver(); return;
+                        }
+                    }
+                    if (bird.y > canvas.height || bird.y < 0) { gameOver(); return; }
+
+                    // Подсчет очков
+                    if (!p.passed && p.x + 40 < 50) { 
+                        p.passed = true;
+                        score++; 
+                        // ИЗМЕНЕНИЯ: Текст победы
+                        if (score >= 5) { winMiniGame("Я очень тобой дорожу!"); return; } 
+                    }
+
+                    if (p.x < -40) pipes.splice(i, 1);
+                }
+
+                ctx.fillStyle = '#333'; ctx.font = '20px Arial';
+                ctx.textAlign = 'left';
+                ctx.fillText('Счет: ' + score + '/5', 10, 30);
+
+                frame++;
+                currentMiniGameLoop = requestAnimationFrame(loop);
+            }
+            
+            function gameOver() {
+                isGameOver = true;
+                ctx.fillStyle = 'rgba(255,0,0,0.5)'; ctx.fillRect(0,0,canvas.width,canvas.height);
+                setTimeout(() => { quitMiniGame(); }, 1000); 
+            }
+            loop();
+        }
+
+        // --- ИГРА 2: ЛОВИ МОИ СЕРДЕЧКИ ТЕБЕ (Canvas) ---
+        function runCatchLove() {
+            const canvas = document.createElement('canvas');
+            gameContainer.appendChild(canvas);
+            const ctx = canvas.getContext('2d');
+            canvas.width = gameContainer.clientWidth;
+            canvas.height = gameContainer.clientHeight;
+
+            let basket = { x: canvas.width/2 - 30, w: 60, h: 20 };
+            let items = [];
+            let score = 0;
+            let isGameOver = false;
+
+            canvas.addEventListener('touchmove', (e) => {
+                e.preventDefault();
+                let rect = canvas.getBoundingClientRect();
+                basket.x = e.touches[0].clientX - rect.left - basket.w/2;
+            }, {passive: false});
+
+            function loop() {
+                if(isGameOver) return;
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                // Отрисовка корзины
+                ctx.fillStyle = '#ff9eb5';
+                ctx.fillRect(basket.x, canvas.height - 30, basket.w, basket.h);
+
+                // Падающие объекты
+                if (Math.random() < 0.05) {
+                    items.push({ x: Math.random() * (canvas.width - 20), y: -20, speed: 2 + Math.random()*3 });
+                }
+
+                for (let i = items.length - 1; i >= 0; i--) {
+                    let item = items[i];
+                    item.y += item.speed;
+                    
+                    ctx.fillStyle = '#ff6b81';
+                    ctx.font = '20px Arial';
+                    ctx.fillText('💖', item.x, item.y);
+
+                    // Коллизия
+                    if (item.y > canvas.height - 30 && item.y < canvas.height && 
+                        item.x + 20 > basket.x && item.x < basket.x + basket.w) {
+                        score++;
+                        items.splice(i, 1);
+                        // ИЗМЕНЕНИЯ: Текст победы
+                        if (score >= 10) { winMiniGame("Молодец моё Солнышко!)"); return; }
+                    } else if (item.y > canvas.height) {
+                        items.splice(i, 1);
+                    }
+                }
+
+                ctx.fillStyle = '#333'; ctx.font = '20px Arial';
+                ctx.textAlign = 'left';
+                ctx.fillText('Поймано: ' + score + '/10', 10, 30);
+
+                currentMiniGameLoop = requestAnimationFrame(loop);
+            }
+            loop();
+        }
+
+        // --- ИГРА 3: НАЙДИ ПАРУ (DOM) ---
+        function runMemoryMatch() {
+            const grid = document.createElement('div');
+            grid.className = 'memory-grid';
+            gameContainer.appendChild(grid);
+
+            // ИЗМЕНЕНИЯ: Массив путей к твоим фотографиям
+            const photos = [
+                'photo1.jpg', 
+                'photo2.jpg', 
+                'photo3.jpg', 
+                'photo4.jpg', 
+                'photo5.jpg', 
+                'photo6.jpg'
+            ];
+            
+            // Дублируем фотки, чтобы создать пары
+            const items = [...photos, ...photos];
+            items.sort(() => 0.5 - Math.random()); // Перемешивание
+
+            let firstCard = null, secondCard = null;
+            let lockBoard = false;
+            let matches = 0;
+
+            items.forEach(item => {
+                const card = document.createElement('div');
+                card.className = 'memory-card';
+                card.dataset.val = item; // Сохраняем имя файла для проверки пары
+                
+                // Если фотки пока не загружены в папку, покажем заглушку (розовый фон с камерой)
+                const fallbackSvg = `data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='100' height='100'><rect width='100' height='100' fill='%23ffb6c1'/><text x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' font-size='40'>📷</text></svg>`;
+                
+                card.innerHTML = `<img src="${item}" alt="Memory" onerror="this.src='${fallbackSvg}'">`;
+                
+                card.onclick = () => {
+                    if (lockBoard || card === firstCard || card.classList.contains('flipped')) return;
+                    
+                    card.classList.add('flipped');
+                    if (!firstCard) { firstCard = card; return; }
+                    
+                    secondCard = card;
+                    lockBoard = true;
+                    
+                    if (firstCard.dataset.val === secondCard.dataset.val) {
+                        matches++;
+                        firstCard = null; secondCard = null; lockBoard = false;
+                        // ИЗМЕНЕНИЯ: Текст победы
+                        if (matches === 6) setTimeout(() => winMiniGame("Ты самая замечательная девушка!"), 500);
+                    } else {
+                        setTimeout(() => {
+                            firstCard.classList.remove('flipped');
+                            secondCard.classList.remove('flipped');
+                            firstCard = null; secondCard = null; lockBoard = false;
+                        }, 800);
+                    }
+                };
+                grid.appendChild(card);
+            });
+        }
+
+        // --- ИГРА 4: ПУЛЬС ЛЮБВИ (DOM Clicker) ---
+        function runClicker() {
+            gameContainer.style.flexDirection = 'column';
+            
+            const stats = document.createElement('div');
+            stats.className = 'clicker-stats';
+            gameContainer.appendChild(stats);
+
+            const btn = document.createElement('div');
+            btn.className = 'clicker-btn';
+            btn.innerHTML = '💖';
+            gameContainer.appendChild(btn);
+
+            let clicks = 0;
+            let timeLeft = 10;
+            
+            stats.innerText = `Клики: 0 / 30 | Время: ${timeLeft}с`;
+
+            btn.onclick = () => {
+                if (timeLeft <= 0) return;
+                clicks++;
+                stats.innerText = `Клики: ${clicks} / 30 | Время: ${timeLeft}с`;
+                // Пульсация
+                btn.style.transform = 'scale(1.1)';
+                setTimeout(() => btn.style.transform = 'scale(1)', 50);
+
+                if (clicks >= 30) {
+                    clearInterval(miniGameTimer);
+                    // ИЗМЕНЕНИЯ: Текст победы
+                    winMiniGame("Я тебя очень сильно люблю");
+                }
+            };
+
+            miniGameTimer = setInterval(() => {
+                timeLeft--;
+                stats.innerText = `Клики: ${clicks} / 30 | Время: ${timeLeft}с`;
+                if (timeLeft <= 0) {
+                    clearInterval(miniGameTimer);
+                    if (clicks < 30) quitMiniGame();
+                }
+            }, 1000);
+        }
+
+        // --- ИГРА 5: ЛАБИРИНТ (Canvas) ---
+        function runMaze() {
+            const canvas = document.createElement('canvas');
+            gameContainer.appendChild(canvas);
+            const ctx = canvas.getContext('2d');
+            canvas.width = gameContainer.clientWidth;
+            canvas.height = gameContainer.clientHeight;
+
+            // 1 - стена, 0 - путь, 2 - выход
+            const maze = [
+                [1,1,1,1,1,1,1,1],
+                [1,0,0,0,1,0,2,1],
+                [1,0,1,0,1,0,1,1],
+                [1,0,1,0,0,0,0,1],
+                [1,0,1,1,1,1,0,1],
+                [1,0,0,0,0,1,0,1],
+                [1,1,1,1,0,0,0,1],
+                [1,1,1,1,1,1,1,1]
+            ];
+            
+            const rows = maze.length;
+            const cols = maze[0].length;
+            const cellSize = Math.min(canvas.width/cols, canvas.height/rows);
+            const offsetX = (canvas.width - cols*cellSize)/2;
+            const offsetY = (canvas.height - rows*cellSize)/2;
+
+            let playerPos = { r: 1, c: 1 };
+
+            // ИЗМЕНЕНИЯ: Загружаем картинку конфет (тоффики)
+            const toffeeImg = new Image();
+            toffeeImg.src = 'toffee.jpg'; // Название файла с конфетами
+
+            function drawMaze() {
+                ctx.clearRect(0,0,canvas.width,canvas.height);
+                for(let r=0; r<rows; r++) {
+                    for(let c=0; c<cols; c++) {
+                        let x = offsetX + c*cellSize;
+                        let y = offsetY + r*cellSize;
+                        
+                        if(maze[r][c] === 1) { 
+                            ctx.fillStyle = '#add8e6'; ctx.fillRect(x,y,cellSize,cellSize); 
+                        } else if(maze[r][c] === 2) { 
+                            // Рисуем выход
+                            if (toffeeImg.complete && toffeeImg.naturalWidth !== 0) {
+                                // Если картинка загрузилась - рисуем её
+                                ctx.drawImage(toffeeImg, x, y, cellSize, cellSize);
+                            } else {
+                                // Заглушка, если файл toffee.jpg пока не добавлен
+                                ctx.fillStyle = '#ffd700'; ctx.fillRect(x,y,cellSize,cellSize); 
+                                ctx.fillStyle = '#333';
+                                ctx.font = (cellSize/2) + 'px Arial';
+                                ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                                ctx.fillText('🍬', x + cellSize/2, y + cellSize/2);
+                            }
+                        }
+                        
+                        ctx.strokeStyle = '#fff'; ctx.strokeRect(x,y,cellSize,cellSize);
+                    }
+                }
+                // Игрок
+                ctx.fillStyle = '#ff6b81';
+                ctx.beginPath();
+                ctx.arc(offsetX + playerPos.c*cellSize + cellSize/2, offsetY + playerPos.r*cellSize + cellSize/2, cellSize/3, 0, Math.PI*2);
+                ctx.fill();
+            }
+
+            // Перерисовываем лабиринт, если картинка конфет подгрузилась с задержкой
+            toffeeImg.onload = () => drawMaze();
+
+            canvas.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                let rect = canvas.getBoundingClientRect();
+                let tx = e.touches[0].clientX - rect.left - offsetX;
+                let ty = e.touches[0].clientY - rect.top - offsetY;
+                let tc = Math.floor(tx / cellSize);
+                let tr = Math.floor(ty / cellSize);
+
+                // Если клик по соседней клетке и там нет стены
+                if (Math.abs(tc - playerPos.c) + Math.abs(tr - playerPos.r) === 1) {
+                    if (maze[tr] && maze[tr][tc] !== 1) {
+                        playerPos.c = tc; playerPos.r = tr;
+                        drawMaze();
+                        // ИЗМЕНЕНИЯ: Текст победы
+                        if (maze[tr][tc] === 2) setTimeout(() => winMiniGame("Ты самая красивая!"), 200);
+                    }
+                }
+            }, {passive: false});
+
+            drawMaze();
+            // Подсказка
+            ctx.fillStyle = '#333'; ctx.font = '16px Arial';
+            ctx.textAlign = 'left';
+            ctx.fillText('Нажимай на соседние клетки,', 10, 20);
+            ctx.fillText('чтобы двигаться к конфетам!', 10, 40);
+        }
+
+        // --- ФИНАЛЬНАЯ СЦЕНА ---
+        function showFinalCelebration() {
+            // Выключаем интерфейс
+            document.getElementById('ui-layer').style.display = 'none';
+            document.getElementById('joystick-zone').style.display = 'none';
+            
+            // Запуск фейерверков в 3D
+            createFireworks();
+            
+            // Камера эффектно отъезжает
+            const startZ = camera.position.z;
+            const targetZ = 20;
+            let t = 0;
+            
+            function cameraAnim() {
+                t += 0.01;
+                if(t <= 1) {
+                    camera.position.z = startZ + (targetZ - startZ) * (1 - Math.pow(1 - t, 3)); // easeOut
+                    requestAnimationFrame(cameraAnim);
+                }
+            }
+            cameraAnim();
+
+            // Показ финального экрана (HTML)
+            const finalScreen = document.getElementById('final-screen');
+            finalScreen.style.background = 'rgba(255, 255, 255, 0.4)'; // Прозрачный, чтобы видеть 3D фейерверки
+            finalScreen.classList.add('active');
+
+            document.getElementById('read-letter-btn').onclick = () => {
+                document.getElementById('read-letter-btn').style.display = 'none';
+                document.getElementById('final-letter').style.display = 'block';
+            };
+        }
+
+        // --- АДАПТИВНОСТЬ ---
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+    </script>
+</body>
+</html>
