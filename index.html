@@ -73,6 +73,27 @@
             line-height: 1.4;
         }
 
+        /* Кнопка музыки */
+        #music-toggle {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(255, 255, 255, 0.8);
+            border: 2px solid var(--primary);
+            border-radius: 50%;
+            width: 45px;
+            height: 45px;
+            font-size: 1.2rem;
+            cursor: pointer;
+            z-index: 100;
+            box-shadow: 0 4px 15px rgba(255, 107, 129, 0.2);
+            display: none; /* Скрыто до начала игры */
+            align-items: center;
+            justify-content: center;
+            transition: transform 0.2s;
+        }
+        #music-toggle:active { transform: scale(0.9); }
+
         /* Окно загрузки локального файла */
         #local-load-ui {
             position: absolute;
@@ -319,6 +340,11 @@
 </head>
 <body>
 
+    <!-- Фоновая музыка -->
+    <audio id="bg-music" loop>
+        <source src="music.mp3" type="audio/mpeg">
+    </audio>
+
     <div id="intro-screen" class="active">
         <div class="intro-content">
             Зайка, я сделал для тебя небольшую квест-игру. Тебе нужно собрать все сердечки. Очень надеюсь что тебе понравится) ❤️<br>
@@ -329,6 +355,9 @@
     <div id="webgl-container"></div>
     
     <div id="ui-layer">Собрано сердец: <span id="score">0</span>/5</div>
+
+    <!-- Кнопка управления музыкой -->
+    <div id="music-toggle" title="Включить/выключить музыку">🎵</div>
 
     <!-- Текст в нижнем левом углу -->
     <div id="bottom-date-text">10.04.2026<br>18 лет 🎁</div>
@@ -374,9 +403,31 @@
         const heartsStatus = [false, false, false, false, false]; 
         const heartObjects = []; 
 
+        // Обработка кнопки старта и запуск музыки
         document.getElementById('start-quest-btn').onclick = () => {
             document.getElementById('intro-screen').classList.remove('active');
             isIntroActive = false;
+
+            // Запуск музыки после клика
+            const bgMusic = document.getElementById('bg-music');
+            bgMusic.volume = 0.4; // 40% громкости, чтобы не пугать
+            bgMusic.play().catch(e => console.log("Музыка не найдена или автозапуск заблокирован", e));
+            
+            // Показываем кнопку музыки
+            document.getElementById('music-toggle').style.display = 'flex';
+        };
+
+        // Кнопка управления музыкой
+        const musicToggle = document.getElementById('music-toggle');
+        musicToggle.onclick = () => {
+            const bgMusic = document.getElementById('bg-music');
+            if (bgMusic.paused) {
+                bgMusic.play();
+                musicToggle.innerText = '🎵';
+            } else {
+                bgMusic.pause();
+                musicToggle.innerText = '🔇';
+            }
         };
 
         // --- НАСТРОЙКА THREE.JS ---
